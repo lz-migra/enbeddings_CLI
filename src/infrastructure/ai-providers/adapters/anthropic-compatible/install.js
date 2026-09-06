@@ -1,27 +1,33 @@
-/**
- * Interactive installer for the Anthropic-compatible adapter (LLM only).
- * Uses the Anthropic Messages API via an OpenAI-shaped proxy (e.g. MiniMax).
- */
-import * as p from '@clack/prompts';
+// filepath: src/infrastructure/ai-providers/adapters/anthropic-compatible/install.js
+import * as p from '../../../../utils/secret-prompt.js';
 
-export async function install({ ask, confirm }) {
-  p.log.step('Configure a chat endpoint that follows the Anthropic Messages API.');
+function defaultEnvName() {
+  return 'ANTHROPIC_COMPATIBLE_API_KEY';
+}
 
-  const model = await ask(
-    'Model (e.g. claude-3-5-sonnet):',
-    'claude-3-5-sonnet'
+export async function install({ ask, confirm, password, mode, envFile }) {
+  p.logStep('Configure a chat endpoint that follows the Anthropic Messages API.');
+
+  const envName = await ask(
+    'Environment variable name for the API key:',
+    defaultEnvName()
   );
 
+  const apiKey = await password({
+    message: `Value for ${envName} (hidden):`,
+    validate: (value) => (value && value.trim().length > 0 ? undefined : 'Value is required'),
+  });
+
+  if (mode !== 'no-tui') {
+    p.writeEnvFileSafe(envFile, { [envName]: apiKey });
+    p.logSuccess(`Saved ${envName} to ${envFile} (mode 0600).`);
+  }
+
+  const model = await ask('Model (e.g. claude-3-5-sonnet):', 'claude-3-5-sonnet');
   const baseUrl = await ask(
     'Base URL of the API (default: https://api.anthropic.com):',
     'https://api.anthropic.com'
   );
-
-  const apiKey = await ask(
-    'API key (env:VAR_NAME or literal value):',
-    'env:ANTHROPIC_API_KEY'
-  );
-
   const temperatureInput = await ask('Sampling temperature (0-1):', '0.2');
   const maxTokensInput = await ask('Max completion tokens:', '16000');
   const enableThinking = await confirm('Enable extended thinking?', false);
@@ -29,7 +35,7 @@ export async function install({ ask, confirm }) {
   const config = {
     model,
     base_url: baseUrl,
-    api_key: apiKey,
+    api_key: `env:${envName}`,
     temperature: parseFloat(temperatureInput),
     max_tokens: parseInt(maxTokensInput, 10),
   };
@@ -40,6 +46,7 @@ export async function install({ ask, confirm }) {
     config.thinking_budget_tokens = parseInt(thinkingBudget, 10);
   }
 
-  p.log.success('Configuration completed successfully.');
+  p.logSuccess('Configuration completed successfully.');
   return config;
 }
+

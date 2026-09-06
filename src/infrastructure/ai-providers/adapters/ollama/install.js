@@ -1,13 +1,10 @@
-/**
- * Interactive installer for the Ollama adapter.
- * Prompts differ slightly for embeddings vs LLM.
- */
-import * as p from '@clack/prompts';
+// filepath: src/infrastructure/ai-providers/adapters/ollama/install.js
+import * as p from '../../../../utils/secret-prompt.js';
 
 export async function install({ ask, type }) {
   const isLlm = type === 'llm';
 
-  p.log.step(
+  p.logStep(
     isLlm
       ? 'Configure a local Ollama Chat endpoint (OpenAI-compatible on /v1/chat/completions).'
       : 'Configure a local Ollama Embeddings endpoint (native /api/embed).'
@@ -25,7 +22,8 @@ export async function install({ ask, type }) {
     'http://localhost:11434'
   );
 
-  p.log.success('Configuration completed successfully.');
+  p.logSuccess('Configuration completed successfully.');
 
   return { model, base_url: baseUrl };
 }
+

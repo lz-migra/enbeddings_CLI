@@ -1,19 +1,34 @@
-/**
- * Interactive installer for the NVIDIA NIM adapter.
- * Embeddings use dimensions, input_types, truncate, and encoding_format.
- * LLM uses temperature, top_p, max_tokens, seed, and chat_template_kwargs.
- */
-import * as p from '@clack/prompts';
+// filepath: src/infrastructure/ai-providers/adapters/nvidia-nim/install.js
+import * as p from '../../../../utils/secret-prompt.js';
 
-export async function install({ ask, confirm, type }) {
+function defaultEnvName(type) {
+  return type === 'llm' ? 'NVIDIA_NIM_LLM_API_KEY' : 'NVIDIA_NIM_EMBEDDINGS_API_KEY';
+}
+
+export async function install({ ask, confirm, password, type, mode, envFile }) {
   const isLlm = type === 'llm';
   const isEmbeddings = type === 'embeddings';
 
-  p.log.step(
+  p.logStep(
     isLlm
       ? 'Configure an LLM endpoint that follows the NVIDIA Chat Completions API.'
       : 'Configure an embeddings endpoint that follows the NVIDIA Embeddings API.'
   );
+
+  const envName = await ask(
+    'Environment variable name for the API key:',
+    defaultEnvName(type)
+  );
+
+  const apiKey = await password({
+    message: `Value for ${envName} (hidden):`,
+    validate: (value) => (value && value.trim().length > 0 ? undefined : 'Value is required'),
+  });
+
+  if (mode !== 'no-tui') {
+    p.writeEnvFileSafe(envFile, { [envName]: apiKey });
+    p.logSuccess(`Saved ${envName} to ${envFile} (mode 0600).`);
+  }
 
   const model = await ask(
     isLlm
@@ -27,12 +42,11 @@ export async function install({ ask, confirm, type }) {
     'https://integrate.api.nvidia.com/v1'
   );
 
-  const apiKey = await ask(
-    'API key (env:VAR_NAME or literal value):',
-    'env:NVIDIA_API_KEY'
-  );
-
-  const config = { model, base_url: baseUrl, api_key: apiKey };
+  const config = {
+    model,
+    base_url: baseUrl,
+    api_key: `env:${envName}`,
+  };
 
   if (isEmbeddings) {
     const dimensionsInput = await ask('Vector dimensions:', '2048');
@@ -69,6 +83,7 @@ export async function install({ ask, confirm, type }) {
     }
   }
 
-  p.log.success('Configuration completed successfully.');
+  p.logSuccess('Configuration completed successfully.');
   return config;
 }
+

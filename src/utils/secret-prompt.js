@@ -2,6 +2,22 @@
 import * as p from './prompt.js';
 import { ensureEnvEntry, writeEnvFile } from './env-file.js';
 
+// Re-export logging helpers so adapter installers have a single import surface.
+export const logInfo = p.logInfo;
+export const logSuccess = p.logSuccess;
+export const logWarn = p.logWarn;
+export const logError = p.logError;
+export const logStep = p.logStep;
+
+/**
+ * Thin wrapper used by adapter installers that delegates to writeEnvFile.
+ * Centralizing it here keeps the adapter code free of env-file plumbing.
+ */
+export function writeEnvFileSafe(envFile, env) {
+  if (!envFile) return writeEnvFile('.embeddings_service/.env', env);
+  return writeEnvFile(envFile, env);
+}
+
 /**
  * Build a stable ENV variable name from an adapter and section.
  * Example: nvidia-nim + embeddings => NVIDIA_NIM_EMBEDDINGS_API_KEY

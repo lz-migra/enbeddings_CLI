@@ -1,5 +1,6 @@
 export const WORK_DIR = '.embeddings_service';
 export const CONFIG_FILE = 'config.jsonc';
+export const ENV_FILE = '.env';
 export const DB_FILE = 'embeddings.db';
 export const WATCHER_PID_FILE = 'watcher.pid';
 export const WATCHER_LOCK_FILE = 'watcher.lock';

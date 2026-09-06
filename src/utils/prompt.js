@@ -28,8 +28,8 @@ export async function text({ message, placeholder, initialValue, validate }) {
   return result;
 }
 
-export async function confirm({ message }) {
-  const result = await p.confirm({ message });
+export async function confirm({ message, initialValue = false }) {
+  const result = await p.confirm({ message, initialValue });
   if (isCancel(result)) cancel();
   return result;
 }

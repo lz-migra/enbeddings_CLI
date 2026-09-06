@@ -7,6 +7,7 @@ The CLI is designed to operate through API-like flows and modular components, st
 ## 1. General Architecture & Configuration
 
 * **Working Directory (`.embeddings_service`):** All configuration files and local vector databases are stored inside this directory:
+* **Secrets (`.env`):** API keys live in `.embeddings_service/.env` with mode `0600`. The JSONC config only stores `env:VAR_NAME` references. Installers persist secrets via the masked password prompt (`@clack/prompts`). `.env` is git-ignored by default; `.embeddings_service/.env.example` is committed as a template.
 * **Global:** Located in the user's home directory (`~/.embeddings_service/config.jsonc`). The CLI reads this by default as the base configuration.
 * **Per-Project:** Located in the root of the repository (`./.embeddings_service/config.jsonc`). It contains only project-specific keys and overrides the global configuration.
 

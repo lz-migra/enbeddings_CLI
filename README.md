@@ -188,21 +188,48 @@ Available installers:
 
 | Adapter | Fields prompted |
 |---|---|
-| `openai-compatible` | model, base_url, api_key, temperature, max_tokens |
-| `nvidia-nim` | model, base_url, api_key, dimensions, indexing/query input types |
+| `openai-compatible` | model, base_url, env_var, api_key (hidden), temperature, max_tokens, dimensions |
+| `nvidia-nim` | model, base_url, env_var, api_key (hidden), dimensions, indexing/query input types |
 | `ollama` | model, base_url |
-| `anthropic-compatible` | model, base_url, api_key, temperature, max_tokens, optional thinking budget |
+| `anthropic-compatible` | model, base_url, env_var, api_key (hidden), temperature, max_tokens, optional thinking budget |
 | `custom-command` | command, timeout_ms, use_stdin, optional output_filter_regex |
+
+### API keys are stored in `.env` (never in the JSONC config)
+
+The TUI installers use clack's masked `password` prompt for the API key value
+and persist it to `.embeddings_service/.env` (or `~/.embeddings_service/.env`
+when running with `-g/--global`) with file mode `0600`. The `config.jsonc`
+only stores an `env:VAR_NAME` reference — the literal key never touches the
+JSON file.
+
+Default env variable names:
+
+| Section | Adapter | Default env name |
+|---|---|---|
+| embeddings | `nvidia-nim` | `NVIDIA_NIM_EMBEDDINGS_API_KEY` |
+| llm | `nvidia-nim` | `NVIDIA_NIM_LLM_API_KEY` |
+| embeddings | `openai-compatible` | `OPENAI_COMPATIBLE_EMBEDDINGS_API_KEY` |
+| llm | `openai-compatible` | `OPENAI_COMPATIBLE_LLM_API_KEY` |
+| llm | `anthropic-compatible` | `ANTHROPIC_COMPATIBLE_API_KEY` |
+
+In `--no-tui` mode the API key is **not** written to `.env` automatically; you
+must export the variable in your shell beforehand and reference it as
+`env:YOUR_VAR` in the config, or edit `.env` by hand.
+
+`.embeddings_service/.env` is included in `.gitignore` by default. A tracked
+example file is provided at `.embeddings_service/.env.example`.
 
 Global install example:
 
 ```bash
 embeddings-service install --adapter nvidia-nim
 Configuring nvidia-nim...
-Model (e.g. nvidia/nemotron-3-embed-1b): [nvidia/nemotron-3-embed-1b]:
+Environment variable name for the API key: [NVIDIA_NIM_EMBEDDINGS_API_KEY]:
+Value for NVIDIA_NIM_EMBEDDINGS_API_KEY (hidden): ********
+✔ Saved NVIDIA_NIM_EMBEDDINGS_API_KEY to /home/user/.embeddings_service/.env (mode 0600).
+Embeddings model (e.g. nvidia/nemotron-3-embed-1b): [nvidia/nemotron-3-embed-1b]:
 Base URL: [https://integrate.api.nvidia.com/v1]:
-API key (env:VAR or literal): [env:NVIDIA_API_KEY]: env:EMB_API_KEY
-Dimensions: [2048]:
+Vector dimensions: [2048]:
 Indexing input type: [passage]:
 Query input type: [query]:
 ✔ Created /home/user/.embeddings_service/config.jsonc

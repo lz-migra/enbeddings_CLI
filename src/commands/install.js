@@ -52,29 +52,22 @@ export function installCommand() {
 
       const embeddingAdapters = registry.listEmbeddings();
       const llmAdapters = registry.listLlm();
-      const availableAdapters = [...new Set([...embeddingAdapters, ...llmAdapters])];
 
-      const adapterName = opts.adapter ?? (await p.select({
-        message: 'Which adapter do you want to use?',
-        options: availableAdapters.map((name) => ({ value: name, label: name })),
-      }));
+      const targetTypeResolved =
+        opts.type === 'both'
+          ? await p.select({
+              message: 'What do you want to configure?',
+              options: [
+                { value: 'embeddings', label: 'Embeddings only' },
+                { value: 'llm', label: 'LLM only' },
+                { value: 'both', label: 'Both (Embeddings + LLM)' },
+              ],
+              initialValue: 'both',
+            })
+          : opts.type;
 
-      const isEmbeddings = embeddingAdapters.includes(adapterName);
-      const isLlm = llmAdapters.includes(adapterName);
-
-      if (!isEmbeddings && !isLlm) {
-        throw new Error(`Unknown adapter "${adapterName}". Available: ${availableAdapters.join(', ')}`);
-      }
-
-      const wantsEmbeddings = (targetType === 'embeddings' || targetType === 'both') && isEmbeddings;
-      const wantsLlm = (targetType === 'llm' || targetType === 'both') && isLlm;
-
-      if (!wantsEmbeddings && !wantsLlm) {
-        throw new Error(
-          `Adapter "${adapterName}" does not support the requested type "${targetType}". ` +
-            `Available: embeddings=${isEmbeddings}, llm=${isLlm}.`
-        );
-      }
+      const wantsEmbeddings = targetTypeResolved === 'embeddings' || targetTypeResolved === 'both';
+      const wantsLlm = targetTypeResolved === 'llm' || targetTypeResolved === 'both';
 
       const config = {
         ...DEFAULT_CONFIG,
@@ -83,17 +76,36 @@ export function installCommand() {
         },
       };
 
-      if (wantsEmbeddings && wantsLlm) {
-        const embeddingsConfig = await runAdapterInstall(adapterName, 'embeddings');
-        const llmConfig = await runAdapterInstall(adapterName, 'llm');
-        config.embeddings = { provider: adapterName, config: embeddingsConfig };
-        config.llm = { provider: adapterName, config: llmConfig };
-      } else if (wantsEmbeddings) {
-        const adapterConfig = await runAdapterInstall(adapterName, 'embeddings');
-        config.embeddings = { provider: adapterName, config: adapterConfig };
-      } else if (wantsLlm) {
-        const adapterConfig = await runAdapterInstall(adapterName, 'llm');
-        config.llm = { provider: adapterName, config: adapterConfig };
+      if (wantsEmbeddings) {
+        const embeddingAdapter =
+          opts.adapter ??
+          (await p.select({
+            message: 'Which adapter do you want to use for Embeddings?',
+            options: embeddingAdapters.map((name) => ({ value: name, label: name })),
+          }));
+        if (!embeddingAdapters.includes(embeddingAdapter)) {
+          throw new Error(
+            `Adapter "${embeddingAdapter}" is not registered for embeddings. Available: ${embeddingAdapters.join(', ')}`
+          );
+        }
+        const embeddingsConfig = await runAdapterInstall(embeddingAdapter, 'embeddings');
+        config.embeddings = { provider: embeddingAdapter, config: embeddingsConfig };
+      }
+
+      if (wantsLlm) {
+        const llmAdapter =
+          opts.adapter ??
+          (await p.select({
+            message: 'Which adapter do you want to use for LLM?',
+            options: llmAdapters.map((name) => ({ value: name, label: name })),
+          }));
+        if (!llmAdapters.includes(llmAdapter)) {
+          throw new Error(
+            `Adapter "${llmAdapter}" is not registered for LLM. Available: ${llmAdapters.join(', ')}`
+          );
+        }
+        const llmConfig = await runAdapterInstall(llmAdapter, 'llm');
+        config.llm = { provider: llmAdapter, config: llmConfig };
       }
 
       fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2) + '\n');

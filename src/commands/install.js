@@ -55,19 +55,18 @@ export function installCommand() {
 
       const targetTypeResolved =
         opts.type === 'both'
-          ? await p.select({
-              message: 'What do you want to configure?',
+          ? await p.multiselect({
+              message: 'What do you want to configure? (Space to select)',
               options: [
-                { value: 'embeddings', label: 'Embeddings only' },
-                { value: 'llm', label: 'LLM only' },
-                { value: 'both', label: 'Both (Embeddings + LLM)' },
+                { value: 'embeddings', label: 'Embeddings' },
+                { value: 'llm', label: 'LLM' },
               ],
-              initialValue: 'both',
+              required: true,
             })
-          : opts.type;
+          : [opts.type];
 
-      const wantsEmbeddings = targetTypeResolved === 'embeddings' || targetTypeResolved === 'both';
-      const wantsLlm = targetTypeResolved === 'llm' || targetTypeResolved === 'both';
+      const wantsEmbeddings = targetTypeResolved.includes('embeddings');
+      const wantsLlm = targetTypeResolved.includes('llm');
 
       const config = {
         ...DEFAULT_CONFIG,

@@ -1,0 +1,11 @@
+node_modules/
+.embeddings_service/embeddings.db
+.embeddings_service/embeddings.db-shm
+.embeddings_service/embeddings.db-wal
+.embeddings_service/.env
+.embeddings_service/watcher.pid
+.embeddings_service/watcher.lock
+.embeddings_service/watcher.lock.lock
+.embeddings_service/watcher.log
+.embeddings_service/config.jsonc
+.embeddings_service/config.jsonc.bak

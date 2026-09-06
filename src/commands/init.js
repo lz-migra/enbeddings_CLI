@@ -27,7 +27,7 @@ export function initCommand() {
     .option('-g, --global', 'Initialize the global config in ~/.embeddings_service instead')
     .option('--adapter <name>', 'Run the interactive installer for a specific adapter')
     .option('--type <type>', 'Which AI section to configure: embeddings, llm, or both', 'both')
-    .option('--gui', 'Use the interactive TUI flow')
+    .option('--no-tui', 'Disable the interactive TUI and use flags only')
     .action(async (opts) => {
       const os = process.env.HOME;
       const dir = opts.global
@@ -36,7 +36,7 @@ export function initCommand() {
       ensureDir(dir);
       const cfgPath = path.join(dir, CONFIG_FILE);
 
-      if (opts.gui) {
+      if (opts.tui) {
         p.intro('Configuring...');
 
         if (fs.existsSync(cfgPath)) {

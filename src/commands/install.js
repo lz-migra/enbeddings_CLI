@@ -24,13 +24,15 @@ async function runAdapterInstall(adapterName, type) {
 
 export function installCommand() {
   return new Command('install')
-    .description('Configure the global ~/.embeddings_service/config.jsonc interactively')
+    .description('Configures the embeddings service config in the current directory or in ~/.embeddings_service')
+    .option('-g, --global', 'Initialize the global config in ~/.embeddings_service instead')
     .option('--adapter <name>', 'Adapter to configure (e.g. openai-compatible, nvidia-nim)')
     .option('--type <type>', 'Which AI section to configure: embeddings, llm, or both', 'both')
+    .option('--no-tui', 'Disable the interactive TUI and use flags only')
     .action(async (opts) => {
-      const globalDir = path.join(os.homedir(), WORK_DIR);
-      ensureDir(globalDir);
-      const cfgPath = path.join(globalDir, CONFIG_FILE);
+      const baseDir = opts.global ? path.join(os.homedir(), WORK_DIR) : path.join(process.cwd(), WORK_DIR);
+      ensureDir(baseDir);
+      const cfgPath = path.join(baseDir, CONFIG_FILE);
 
       const validTypes = ['embeddings', 'llm', 'both'];
       const targetType = opts.type;
@@ -38,78 +40,89 @@ export function installCommand() {
         throw new Error(`Invalid --type "${targetType}". Use one of: ${validTypes.join(', ')}`);
       }
 
-      p.intro('Configuring...');
+      if (opts.tui) {
+        p.intro('Configuring...');
+
+        if (fs.existsSync(cfgPath)) {
+          p.logWarn(`Config already exists at ${cfgPath}`);
+          const shouldContinue = await p.confirm({
+            message: 'Do you want to continue? The current configuration will be overwritten.',
+          });
+          if (!shouldContinue) {
+            p.cancel('Operation cancelled.');
+          }
+        }
+
+        const sections = await p.multiselect({
+          message: 'Select what you want to configure (Space to select):',
+          options: [
+            { value: 'embeddings', label: 'Embeddings' },
+            { value: 'llm', label: 'LLM' },
+          ],
+          required: true,
+        });
+
+        const embeddingAdapters = registry.listEmbeddings();
+        const llmAdapters = registry.listLlm();
+        const availableAdapters = [...new Set([...embeddingAdapters, ...llmAdapters])];
+
+        const config = { ...DEFAULT_CONFIG };
+
+        for (const section of sections) {
+          const adapters = section === 'embeddings' ? embeddingAdapters : llmAdapters;
+          const adapterName = await p.select({
+            message: `Which adapter do you want to use for ${section}?`,
+            options: adapters.map((name) => ({ value: name, label: name })),
+          });
+
+          const adapterConfig = await runAdapterInstall(adapterName, section);
+          config[section] = { provider: adapterName, config: adapterConfig };
+        }
+
+        fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2) + '\n');
+        p.logSuccess(`Created ${cfgPath}`);
+        p.logInfo('Use .embeddings_service/.env for API keys (env:VAR references supported).');
+        p.outro("You're all set!");
+        return;
+      }
 
       if (fs.existsSync(cfgPath)) {
-        p.logWarn(`Config already exists at ${cfgPath}`);
-        const shouldContinue = await p.confirm({
-          message: 'Do you want to continue? The current configuration will be overwritten.',
-        });
-        if (!shouldContinue) {
-          p.cancel('Operation cancelled.');
-        }
+        logger.warn(`Config already exists at ${cfgPath}`);
+        return;
       }
 
       const embeddingAdapters = registry.listEmbeddings();
       const llmAdapters = registry.listLlm();
 
-      const targetTypeResolved =
-        opts.type === 'both'
-          ? await p.multiselect({
-              message: 'What do you want to configure? (Space to select)',
-              options: [
-                { value: 'embeddings', label: 'Embeddings' },
-                { value: 'llm', label: 'LLM' },
-              ],
-              required: true,
-            })
-          : [opts.type];
+      if (!opts.adapter) {
+        throw new Error('In --no-tui mode you must pass --adapter <name>.');
+      }
 
-      const wantsEmbeddings = targetTypeResolved.includes('embeddings');
-      const wantsLlm = targetTypeResolved.includes('llm');
+      const wantsEmbeddings = (targetType === 'embeddings' || targetType === 'both') && embeddingAdapters.includes(opts.adapter);
+      const wantsLlm = (targetType === 'llm' || targetType === 'both') && llmAdapters.includes(opts.adapter);
 
-      const config = {
-        ...DEFAULT_CONFIG,
-        database: {
-          path: path.join(os.homedir(), WORK_DIR, 'embeddings.db'),
-        },
-      };
+      if (!wantsEmbeddings && !wantsLlm) {
+        throw new Error(
+          `Adapter "${opts.adapter}" does not support the requested type "${targetType}". ` +
+            `Available: embeddings=${embeddingAdapters.includes(opts.adapter)}, llm=${llmAdapters.includes(opts.adapter)}.`
+        );
+      }
+
+      logger.step(`Configuring ${opts.adapter}...`);
+      const config = { ...DEFAULT_CONFIG };
 
       if (wantsEmbeddings) {
-        const embeddingAdapter =
-          opts.adapter ??
-          (await p.select({
-            message: 'Which adapter do you want to use for Embeddings?',
-            options: embeddingAdapters.map((name) => ({ value: name, label: name })),
-          }));
-        if (!embeddingAdapters.includes(embeddingAdapter)) {
-          throw new Error(
-            `Adapter "${embeddingAdapter}" is not registered for embeddings. Available: ${embeddingAdapters.join(', ')}`
-          );
-        }
-        const embeddingsConfig = await runAdapterInstall(embeddingAdapter, 'embeddings');
-        config.embeddings = { provider: embeddingAdapter, config: embeddingsConfig };
+        const embeddingsConfig = await runAdapterInstall(opts.adapter, 'embeddings');
+        config.embeddings = { provider: opts.adapter, config: embeddingsConfig };
       }
 
       if (wantsLlm) {
-        const llmAdapter =
-          opts.adapter ??
-          (await p.select({
-            message: 'Which adapter do you want to use for LLM?',
-            options: llmAdapters.map((name) => ({ value: name, label: name })),
-          }));
-        if (!llmAdapters.includes(llmAdapter)) {
-          throw new Error(
-            `Adapter "${llmAdapter}" is not registered for LLM. Available: ${llmAdapters.join(', ')}`
-          );
-        }
-        const llmConfig = await runAdapterInstall(llmAdapter, 'llm');
-        config.llm = { provider: llmAdapter, config: llmConfig };
+        const llmConfig = await runAdapterInstall(opts.adapter, 'llm');
+        config.llm = { provider: opts.adapter, config: llmConfig };
       }
 
       fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2) + '\n');
-      p.logSuccess(`Created ${cfgPath}`);
-      p.logInfo('Use .embeddings_service/.env for API keys (env:VAR references supported).');
-      p.outro("You're all set!");
+      logger.success(`Created ${cfgPath}`);
+      logger.dim('Use .embeddings_service/.env for API keys (env:VAR references supported).');
     });
 }

@@ -6,7 +6,25 @@ language queries via embeddings + LLM query decomposition.
 
 ## Install
 
+Install globally from GitHub (no need to clone the repo first):
+
 ```bash
+npm install -g lz-migra/enbeddings_CLI
+```
+
+Then run the interactive setup:
+
+```bash
+embeddings-service install --adapter nvidia-nim
+```
+
+### Local install (alternative)
+
+If you prefer to clone the repository and link the binary locally:
+
+```bash
+git clone https://github.com/lz-migra/enbeddings_CLI.git
+cd enbeddings_CLI
 npm install
 npm link   # exposes the `embeddings-service` command
 ```

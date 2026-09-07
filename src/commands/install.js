@@ -20,9 +20,13 @@ async function runAdapterInstall(adapterName, type, ctx) {
     throw new Error(`No install script found for adapter "${adapterName}"`);
   }
   const { install } = await import(adapterPath);
+  // Adapters use the simple positional signature: ask(message, defaultValue)
+  // and confirm(message, defaultValue). Translate to clack's object form here.
+  const ask = (message, initialValue) => p.text({ message, initialValue });
+  const confirm = (message, initialValue = false) => p.confirm({ message, initialValue });
   return install({
-    ask: p.text,
-    confirm: p.confirm,
+    ask,
+    confirm,
     select: p.select,
     password: p.password,
     type,

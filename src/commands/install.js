@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG, WORK_DIR, CONFIG_FILE, ENV_FILE } from '../config/constants.js';
-import { ensureDir } from '../utils/file-system.js';
+import { ensureDir, dbPath } from '../utils/file-system.js';
 import { logger } from '../utils/logger.js';
 import { registry } from '../infrastructure/ai-providers/core/index.js';
 import * as p from '../utils/prompt.js';
@@ -83,7 +83,10 @@ export function installCommand() {
         const llmAdapters = registry.listLlm();
         const availableAdapters = [...new Set([...embeddingAdapters, ...llmAdapters])];
 
-        const config = { ...DEFAULT_CONFIG };
+        const config = {
+          ...DEFAULT_CONFIG,
+          database: { path: dbPath(baseDir) },
+        };
 
         for (const section of sections) {
           const adapters = section === 'embeddings' ? embeddingAdapters : llmAdapters;
@@ -127,7 +130,10 @@ export function installCommand() {
       }
 
       logger.step(`Configuring ${opts.adapter}...`);
-      const config = { ...DEFAULT_CONFIG };
+      const config = {
+        ...DEFAULT_CONFIG,
+        database: { path: dbPath(baseDir) },
+      };
 
       if (wantsEmbeddings) {
         const embeddingsConfig = await runAdapterInstall(opts.adapter, 'embeddings', installCtx);

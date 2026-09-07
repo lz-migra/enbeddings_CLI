@@ -23,7 +23,9 @@ export const DEFAULT_CONFIG = {
     ],
   },
   database: {
-    path: '~/.embeddings_service/embeddings.db',
+    // Path is rewritten by init/install to point at the project or global dir.
+    // This default is only used as a fallback before the first run.
+    path: './.embeddings_service/embeddings.db',
   },
 /*
   embeddings: {

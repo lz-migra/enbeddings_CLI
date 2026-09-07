@@ -105,13 +105,19 @@ export function doctorCommand() {
       for (const section of ['embeddings', 'llm']) {
         const sectionConfig = config[section];
         if (!sectionConfig) {
-          logger.warn(`${section}: not configured`);
+          logger.warn(`${section}: not configured (no local or global config found)`);
           continue;
         }
+        const providerSource = sources[`${section}.provider`];
         logger.info(`${section}:`);
         logger.info(
-          `  provider: ${sectionConfig.provider} (${sources[`${section}.provider`] ?? 'unknown'})`
+          `  provider: ${sectionConfig.provider} (${providerSource ?? 'unknown'})`
         );
+        if (providerSource && providerSource !== 'project') {
+          logger.dim(
+            `  ↳ inherited from ${providerSource} config (no local ${section} section defined).`
+          );
+        }
         const cfg = sectionConfig.config ?? {};
         const leafPaths = collectLeafPaths(cfg, `${section}.config`);
         for (const fullPath of leafPaths) {

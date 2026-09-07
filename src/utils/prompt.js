@@ -79,23 +79,3 @@ export function spinner() {
 export function progress({ max }) {
   return p.progress({ max });
 }
-
-/**
- * Legacy shim: accepts (message, defaultValue) like the previous readline-based
- * prompts and delegates to @clack/prompts under the hood. Use this in adapter
- * installers that were written before the migration to clack.
- */
-export async function askLegacy(message, defaultValue = '') {
-  return text({
-    message,
-    initialValue: defaultValue,
-  });
-}
-
-/**
- * Legacy shim for yes/no questions. Uses clack's native confirm prompt so the
- * user navigates with arrow keys instead of typing y/n.
- */
-export async function confirmLegacy(message, defaultValue = false) {
-  return confirm({ message, initialValue: defaultValue });
-}

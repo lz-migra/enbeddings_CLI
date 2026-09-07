@@ -67,32 +67,35 @@ export function initCommand() {
         }
 
         const sections = await p.multiselect({
-          message: 'Select what you want to configure (Space to select):',
+          message: 'Select what you want to configure (Space to select, Enter to confirm — empty selection is OK):',
           options: [
             { value: 'embeddings', label: 'Embeddings' },
             { value: 'llm', label: 'LLM' },
           ],
-          required: true,
+          required: false,
         });
 
         const embeddingAdapters = registry.listEmbeddings();
         const llmAdapters = registry.listLlm();
-        const availableAdapters = [...new Set([...embeddingAdapters, ...llmAdapters])];
 
         const config = {
           ...DEFAULT_CONFIG,
           database: { path: dbPath(dir) },
         };
 
-        for (const section of sections) {
-          const adapters = section === 'embeddings' ? embeddingAdapters : llmAdapters;
-          const adapterName = await p.select({
-            message: `Which adapter do you want to use for ${section}?`,
-            options: adapters.map((name) => ({ value: name, label: name })),
-          });
+        if (sections.length === 0) {
+          p.logWarn('No AI sections selected — embeddings and llm will fall back to ~/.embeddings_service/config.jsonc (the global config).');
+        } else {
+          for (const section of sections) {
+            const adapters = section === 'embeddings' ? embeddingAdapters : llmAdapters;
+            const adapterName = await p.select({
+              message: `Which adapter do you want to use for ${section}?`,
+              options: adapters.map((name) => ({ value: name, label: name })),
+            });
 
-          const adapterConfig = await runAdapterInstall(adapterName, section, installCtx);
-          config[section] = { provider: adapterName, config: adapterConfig };
+            const adapterConfig = await runAdapterInstall(adapterName, section, installCtx);
+            config[section] = { provider: adapterName, config: adapterConfig };
+          }
         }
 
         writeEnvFile(envFile, {}); // ensure the file exists for visibility
@@ -114,7 +117,21 @@ export function initCommand() {
         throw new Error(`Invalid --type "${targetType}". Use one of: ${validTypes.join(', ')}`);
       }
 
-      let config = DEFAULT_CONFIG;
+      const config = {
+        ...DEFAULT_CONFIG,
+        database: { path: dbPath(dir) },
+      };
+
+      if (!opts.adapter) {
+        // No adapter requested — create a minimal config so embeddings and llm
+        // fall back to the global configuration.
+        writeEnvFile(envFile, {});
+        fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2) + '\n');
+        logger.success(`Created ${cfgPath}`);
+        logger.dim('embeddings and llm will be inherited from ~/.embeddings_service/config.jsonc.');
+        return;
+      }
+
       if (opts.adapter) {
         const embeddingAdapters = registry.listEmbeddings();
         const llmAdapters = registry.listLlm();

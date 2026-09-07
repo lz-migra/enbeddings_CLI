@@ -13,11 +13,29 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-/** Deep merge: override wins; objects merge recursively. */
+/** Deep merge: override wins; objects merge recursively.
+ *  Special rule for AI sections (embeddings / llm): when the override declares a
+ *  different `provider`, the inner `config` block is replaced wholesale
+ *  instead of being merged — providers have different schemas and mixing
+ *  fields from two providers produces invalid configurations.
+ */
 export function deepMerge(base, override) {
   if (!isPlainObject(base) || !isPlainObject(override)) return override ?? base;
+
   const out = { ...base };
   for (const [key, value] of Object.entries(override)) {
+    if (
+      (key === 'embeddings' || key === 'llm') &&
+      isPlainObject(value) &&
+      'provider' in value &&
+      isPlainObject(base?.[key]) &&
+      base[key].provider &&
+      base[key].provider !== value.provider
+    ) {
+      // Provider changed: drop stale fields and use the override as-is.
+      out[key] = value;
+      continue;
+    }
     out[key] = key in base ? deepMerge(base[key], value) : value;
   }
   return out;
@@ -51,13 +69,37 @@ function markSources(value, source, output, prefix = '') {
 }
 
 function sourcePaths(base, override, source, sources, prefix = '') {
+  // Leaf reached: if the override value differs from the base, the leaf
+  // originated from `source`.
   if (!isPlainObject(override)) {
     if (prefix && JSON.stringify(base) !== JSON.stringify(override)) sources[prefix] = source;
+    return;
+  }
+  // Special case: provider switch inside an AI section — every leaf under
+  // section.config is now owned by `source`.
+  const isProviderSwitch =
+    prefix === 'embeddings' || prefix === 'llm';
+  if (isProviderSwitch && 'provider' in override) {
+    for (const [key, value] of Object.entries(override)) {
+      const keyPath = prefix ? `${prefix}.${key}` : key;
+      markLeafSources(value, source, sources, keyPath);
+    }
     return;
   }
   for (const [key, value] of Object.entries(override)) {
     const keyPath = prefix ? `${prefix}.${key}` : key;
     sourcePaths(base?.[key], value, source, sources, keyPath);
+  }
+}
+
+/** Walk a value and return every leaf path. Used to tag nested leaves. */
+export function markLeafSources(value, source, output, prefix = '') {
+  if (!isPlainObject(value)) {
+    if (prefix) output[prefix] = source;
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    markLeafSources(child, source, output, prefix ? `${prefix}.${key}` : key);
   }
 }
 

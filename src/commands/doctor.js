@@ -1,10 +1,14 @@
+// filepath: src/commands/doctor.js
 import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parse as parseJsonc } from 'jsonc-parser';
+import { parse as parseDotenv } from 'dotenv';
 import { loadConfigDetails } from '../config/config-loader.js';
 import { createEmbeddingsEngine } from '../infrastructure/ai-providers/factories/embeddings-factory.js';
 import { createLlmClient } from '../infrastructure/ai-providers/factories/llm-factory.js';
-import { configuredDbPath } from '../utils/file-system.js';
+import { registry } from '../infrastructure/ai-providers/core/index.js';
+import { configuredDbPath, globalWorkDir, projectWorkDir } from '../utils/file-system.js';
 import { logger, withSpinner } from '../utils/logger.js';
 
 function displayValue(key, value) {
@@ -18,6 +22,67 @@ function printSection(title) {
   logger.dim('-'.repeat(title.length));
 }
 
+function readJsoncFile(file) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    return parseJsonc(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    return { _error: err.message };
+  }
+}
+
+function readDotenvFile(file) {
+  if (!fs.existsSync(file)) return {};
+  try {
+    return parseDotenv(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function listAdapterNames() {
+  return Array.from(new Set([...registry.listEmbeddings(), ...registry.listLlm()]));
+}
+
+/** Return every dotted leaf path inside `obj`. */
+function collectLeafPaths(obj, prefix = '') {
+  const out = [];
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    if (prefix) out.push(prefix);
+    return out;
+  }
+  for (const [key, value] of Object.entries(obj)) {
+    if (key.startsWith('_')) continue;
+    const full = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      out.push(...collectLeafPaths(value, full));
+    } else {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function findEnvVarNames(value) {
+  const names = [];
+  const walk = (v) => {
+    if (typeof v === 'string' && v.startsWith('env:')) names.push(v.slice(4));
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(value);
+  return names;
+}
+
+function listEnvStatus(envVars, envs) {
+  return envVars.map((name) => {
+    if (process.env[name]) return { name, source: 'process env', ok: true };
+    if (envs.project[name]) return { name, source: 'project .env', ok: true };
+    if (envs.global[name]) return { name, source: 'global .env', ok: true };
+    return { name, source: 'missing', ok: false };
+  });
+}
+
 export function doctorCommand() {
   return new Command('doctor')
     .description('Show effective configuration and test configured providers')
@@ -25,35 +90,93 @@ export function doctorCommand() {
     .action(async (opts) => {
       const rootDir = process.cwd();
       const { config, sources } = loadConfigDetails(rootDir);
-      const globalConfig = path.join(process.env.HOME ?? '', '.embeddings_service', 'config.jsonc');
-      const projectConfig = path.join(rootDir, '.embeddings_service', 'config.jsonc');
 
+      const globalDir = globalWorkDir();
+      const projectDir = projectWorkDir(rootDir);
+      const globalCfg = path.join(globalDir, 'config.jsonc');
+      const projectCfg = path.join(projectDir, 'config.jsonc');
+      const envs = {
+        global: readDotenvFile(path.join(globalDir, '.env')),
+        project: readDotenvFile(path.join(projectDir, '.env')),
+      };
+
+      // ----- Effective configuration -----
       printSection('Effective configuration');
-      for (const section of ['llm', 'embeddings']) {
-        const sectionConfig = config[section] ?? {};
-        const cfg = sectionConfig.config ?? {};
+      for (const section of ['embeddings', 'llm']) {
+        const sectionConfig = config[section];
+        if (!sectionConfig) {
+          logger.warn(`${section}: not configured`);
+          continue;
+        }
         logger.info(`${section}:`);
-        logger.info(`  provider: ${sectionConfig.provider ?? '[missing]'} (${sources[`${section}.provider`] ?? 'unknown'})`);
-        for (const key of Object.keys(cfg).filter((key) => key !== '_missingEnvVar')) {
-          logger.info(`  config.${key}: ${displayValue(key, cfg[key])} (${sources[`${section}.config.${key}`] ?? 'unknown'})`);
+        logger.info(
+          `  provider: ${sectionConfig.provider} (${sources[`${section}.provider`] ?? 'unknown'})`
+        );
+        const cfg = sectionConfig.config ?? {};
+        const leafPaths = collectLeafPaths(cfg, `${section}.config`);
+        for (const fullPath of leafPaths) {
+          const value = fullPath.split('.').reduce((v, p) => v?.[p], config);
+          const lastKey = fullPath.split('.').pop();
+          const displayKey = fullPath.slice(`${section}.config.`.length);
+          logger.info(
+            `  config.${displayKey}: ${displayValue(lastKey, value)} (${sources[fullPath] ?? 'unknown'})`
+          );
+        }
+        const envStatus = listEnvStatus(findEnvVarNames(cfg), envs);
+        if (envStatus.length) {
+          for (const { name, source, ok } of envStatus) {
+            const label = ok ? source : 'MISSING (run `install` or export it)';
+            logger[ok ? 'dim' : 'warn'](`  secret ${name}: ${label}`);
+          }
         }
       }
 
+      // ----- Local overrides (real diff against global) -----
       printSection('Local configuration overrides');
-      const localOverrides = Object.entries(sources).filter(([, source]) => source === 'project');
-      if (localOverrides.length === 0) {
-        logger.info('No local property overrides the global/default configuration.');
+      const globalConfig = readJsoncFile(globalCfg);
+      const projectConfig = readJsoncFile(projectCfg);
+      const leafOverrides = Object.entries(sources)
+        .filter(([, source]) => source === 'project')
+        .map(([path]) => path)
+        .sort();
+      if (leafOverrides.length === 0) {
+        logger.info('No local overrides (project config matches global).');
       } else {
-        for (const [key] of localOverrides) logger.info(`  ${key}: ${displayValue(key.split('.').pop(), key.split('.').reduce((value, part) => value?.[part], config))}`);
+        for (const leafPath of leafOverrides) {
+          const value = leafPath.split('.').reduce((v, p) => v?.[p], config);
+          const lastKey = leafPath.split('.').pop();
+          logger.info(`  ${leafPath}: ${displayValue(lastKey, value)}`);
+        }
       }
-      logger.dim(`Global: ${globalConfig}${fs.existsSync(globalConfig) ? '' : ' (does not exist)'}`);
-      logger.dim(`Local:  ${projectConfig}${fs.existsSync(projectConfig) ? '' : ' (does not exist)'}`);
+      logger.dim(`Global: ${globalCfg}${fs.existsSync(globalCfg) ? '' : ' (does not exist)'}`);
+      logger.dim(`Local:  ${projectCfg}${fs.existsSync(projectCfg) ? '' : ' (does not exist)'}`);
 
+      // ----- Adapter consistency -----
+      printSection('Adapter validation');
+      const known = new Set(listAdapterNames());
+      const issues = [];
+      for (const section of ['embeddings', 'llm']) {
+        const provider = config[section]?.provider;
+        if (!provider) continue;
+        if (!known.has(provider)) {
+          issues.push(`${section}.provider '${provider}' is not registered`);
+        }
+      }
+      if (issues.length === 0) {
+        logger.success('All configured providers are registered.');
+      } else {
+        for (const issue of issues) logger.error(`- ${issue}`);
+      }
+
+      // ----- Database -----
       const databaseFile = configuredDbPath(config, rootDir);
       printSection('Database');
       logger.info(`Path: ${databaseFile}`);
-      logger.info(`Status: ${fs.existsSync(databaseFile) ? 'exists' : 'will be created during indexing'}`);
+      logger.info(
+        `Status: ${fs.existsSync(databaseFile) ? 'exists' : 'will be created during indexing'}`
+      );
 
+      // ----- Provider tests -----
       if (opts.network) {
         printSection('Provider tests');
         try {

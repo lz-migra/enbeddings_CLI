@@ -38,13 +38,14 @@ async function runAdapterInstall(adapterName, type, ctx) {
 
 export function installCommand() {
   return new Command('install')
-    .description('Configures the embeddings service config in the current directory or in ~/.embeddings_service')
-    .option('-g, --global', 'Initialize the global config in ~/.embeddings_service instead')
+    .description('Configures the global ~/.embeddings_service/config.jsonc (use init for project-local config)')
     .option('--adapter <name>', 'Adapter to configure (e.g. openai-compatible, nvidia-nim)')
     .option('--type <type>', 'Which AI section to configure: embeddings, llm, or both', 'both')
     .option('--no-tui', 'Disable the interactive TUI and use flags only')
     .action(async (opts) => {
-      const baseDir = opts.global ? path.join(os.homedir(), WORK_DIR) : path.join(process.cwd(), WORK_DIR);
+      // install always targets the global config, regardless of cwd.
+      // Project-local configuration is handled by `init`.
+      const baseDir = path.join(os.homedir(), WORK_DIR);
       ensureDir(baseDir);
       const cfgPath = path.join(baseDir, CONFIG_FILE);
       const envFile = path.join(baseDir, ENV_FILE);

@@ -34,6 +34,24 @@ export function openDatabase(dbFilePath, dimensions) {
     CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
   `);
 
+  // Migration: add root_dir column for project-scoped search.
+  const hasRootDir = db
+    .prepare("SELECT 1 FROM pragma_table_info('chunks') WHERE name = 'root_dir'")
+    .get();
+  if (!hasRootDir) {
+    db.exec('ALTER TABLE chunks ADD COLUMN root_dir TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_root_dir ON chunks(root_dir)');
+    const legacy = db
+      .prepare('SELECT COUNT(*) AS n FROM chunks WHERE root_dir IS NULL')
+      .get().n;
+    if (legacy > 0) {
+      logger.warn(
+        `${legacy} existing chunk(s) have no root_dir (indexed before project scoping). ` +
+          'They will only appear in `search --all`. Run `index --reindex --force` to re-tag them.'
+      );
+    }
+  }
+
   if (vecAvailable) {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(

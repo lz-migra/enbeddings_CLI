@@ -17,7 +17,7 @@ export class Indexer {
     this.config = config;
     this.repo = repository;
     this.engine = embeddingsEngine;
-    this.rootDir = rootDir;
+    this.rootDir = path.resolve(rootDir);
     this.chunker = new ChunkerEngine(config.chunking);
     this.failures = [];
   }
@@ -97,6 +97,7 @@ export class Indexer {
           content: batch[j].content,
           model: this.engine.model,
           created_at: Date.now(),
+          root_dir: this.rootDir,
           embedding: embeddings[j],
         });
       }

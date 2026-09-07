@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import path from 'node:path';
 import { loadConfig } from '../config/config-loader.js';
 import { openDatabase } from '../infrastructure/database/sqlite-client.js';
 import { EmbeddingsRepository } from '../infrastructure/database/repositories/embeddings-repository.js';
@@ -16,11 +17,32 @@ export function searchCommand() {
     .option('--json', 'Output structured JSON for programmatic use')
     .option('--no-decompose', 'Skip LLM query decomposition (use raw prompt)')
     .option('-l, --limit <value>', 'Max results, or "auto" for dynamic filtering', 'auto')
+    .option('-a, --all', 'Search across every indexed project (ignore root_dir scoping)')
+    .option(
+      '--roots <dirs>',
+      'Comma-separated list of project root directories to search in (overrides the current directory scope)'
+    )
     .action(async (prompt, opts) => {
       const rootDir = process.cwd();
       const config = loadConfig(rootDir);
+
+      // Scope resolution: --all wins, then --roots, then the current directory.
+      let roots = [path.resolve(rootDir)];
+      if (opts.all) {
+        roots = null;
+      } else if (opts.roots) {
+        roots = opts.roots
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean)
+          .map((r) => path.resolve(rootDir, r));
+        if (roots.length === 0) {
+          throw new Error('--roots was given but no valid directories were parsed.');
+        }
+      }
       const { db, vecAvailable } = openDatabase(
         configuredDbPath(config, rootDir),
+          roots,
         config.embeddings.config.dimensions
       );
 
@@ -68,6 +90,11 @@ export function searchCommand() {
         }
 
         logger.step('🔎 Querying embeddings database (SQLite)...');
+        if (roots === null) {
+          logger.dim('Scope: all indexed projects (--all)');
+        } else {
+          logger.dim(`Scope: ${roots.join(', ')}`);
+        }
         logger.info(`Found ${results.length} relevant chunks:\n`);
 
         results.forEach((r, i) => {

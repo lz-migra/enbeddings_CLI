@@ -61,8 +61,8 @@ export class EmbeddingsRepository {
 
   insertChunks(chunks) {
     const insertChunk = this.db.prepare(`
-      INSERT INTO chunks (uuid, file_path, file_hash, start_line, end_line, content, model, created_at)
-      VALUES (@uuid, @file_path, @file_hash, @start_line, @end_line, @content, @model, @created_at)
+      INSERT INTO chunks (uuid, file_path, file_hash, start_line, end_line, content, model, created_at, root_dir)
+      VALUES (@uuid, @file_path, @file_hash, @start_line, @end_line, @content, @model, @created_at, @root_dir)
     `);
     const insertVec = this.vecAvailable
       ? this.db.prepare('INSERT INTO chunk_vectors (uuid, embedding) VALUES (?, vec_f32(?))')
@@ -81,26 +81,37 @@ export class EmbeddingsRepository {
     tx(chunks);
   }
 
-  /** KNN search. Returns [{uuid, file_path, start_line, end_line, content, distance}]. */
-  knn(queryEmbedding, k) {
+  /**
+   * KNN search. Returns [{uuid, file_path, start_line, end_line, content, distance, root_dir}].
+   * @param {number[]} queryEmbedding
+   * @param {number} k
+   * @param {string[]|null} roots - absolute root dirs to restrict results to; null = no filter.
+   */
+  knn(queryEmbedding, k, roots = null) {
     if (this.vecAvailable) {
-      return this.db
+      // vec0 cannot push the root_dir filter into the MATCH clause, so we
+      // over-fetch and filter in JS. The factor is generous to keep recall
+      // high when only a fraction of the index belongs to the target roots.
+      const fetchK = roots ? k * 10 : k;
+      const rows = this.db
         .prepare(`
-          SELECT c.uuid, c.file_path, c.start_line, c.end_line, c.content, v.distance
+          SELECT c.uuid, c.file_path, c.start_line, c.end_line, c.content, c.root_dir, v.distance
           FROM chunk_vectors v
           JOIN chunks c ON c.uuid = v.uuid
           WHERE v.embedding MATCH vec_f32(?) AND k = ?
           ORDER BY v.distance
         `)
-        .all(Buffer.from(new Float32Array(queryEmbedding).buffer), k);
+        .all(Buffer.from(new Float32Array(queryEmbedding).buffer), fetchK);
+      const filtered = roots ? rows.filter((r) => roots.includes(r.root_dir)) : rows;
+      return filtered.slice(0, k);
     }
-    return this.#fallbackKnn(queryEmbedding, k);
+    return this.#fallbackKnn(queryEmbedding, k, roots);
   }
 
-  #fallbackKnn(queryEmbedding, k) {
+  #fallbackKnn(queryEmbedding, k, roots = null) {
     const rows = this.db
       .prepare(`
-        SELECT c.uuid, c.file_path, c.start_line, c.end_line, c.content, f.embedding
+        SELECT c.uuid, c.file_path, c.start_line, c.end_line, c.content, c.root_dir, f.embedding
         FROM chunk_vectors_fallback f
         JOIN chunks c ON c.uuid = f.uuid
       `)
@@ -111,10 +122,12 @@ export class EmbeddingsRepository {
       start_line: r.start_line,
       end_line: r.end_line,
       content: r.content,
+      root_dir: r.root_dir,
       distance: 1 - cosineSimilarity(queryEmbedding, JSON.parse(r.embedding)),
     }));
     scored.sort((a, b) => a.distance - b.distance);
-    return scored.slice(0, k);
+    const filtered = roots ? scored.filter((r) => roots.includes(r.root_dir)) : scored;
+    return filtered.slice(0, k);
   }
 
   countChunks() {

@@ -68,16 +68,19 @@ export class QueryEngine {
   }
 
   /**
+   * @param {string} prompt
+   * @param {{ decompose?: boolean, limit?: number|string, roots?: string[]|null }} opts
+   *   roots: absolute project root dirs to restrict results to; null = search everything.
    * @returns {{ queries: string[], results: Array }}
    */
-  async search(prompt, { decompose = true, limit = DEFAULT_LIMIT } = {}) {
+  async search(prompt, { decompose = true, limit = DEFAULT_LIMIT, roots = null } = {}) {
     this.validateModel();
 
     const queries = decompose ? await this.decomposer.decompose(prompt) : [prompt];
     const queryEmbeddings = await this.engine.embedQueries(queries);
 
     // Per-sub-query KNN
-    const rankings = queryEmbeddings.map((emb) => this.repo.knn(emb, SUBQUERY_TOP_K));
+    const rankings = queryEmbeddings.map((emb) => this.repo.knn(emb, SUBQUERY_TOP_K, roots));
 
     // Reciprocal Rank Fusion
     const scores = new Map(); // uuid -> { rrf, best, bestSimilarity }
@@ -104,6 +107,7 @@ export class QueryEngine {
       .map((e) => ({
         uuid: e.best.uuid,
         file_path: e.best.file_path,
+        root_dir: e.best.root_dir ?? null,
         start_line: e.best.start_line,
         end_line: e.best.end_line,
         similarity_score: Math.round(e.bestSimilarity * 100) / 100,
